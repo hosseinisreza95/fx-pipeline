@@ -12,25 +12,27 @@
 - Free, no API key required
 - Covers all required currencies (NOK, EUR, SEK, PLN, RON, DKK, CZK)
 - Provides historical data back to 1999
-- Returns cross-pairs directly
+- Data is sourced directly from the European Central Bank (ECB)
 
-**Trade-off:** Not a real-time source. Data is available with a 1-day lag,
-which is acceptable for a daily batch pipeline.
+**Trade-off:** Not a real-time source. Data updates once per business day
+around 16:00 CET. Pipeline is scheduled at 17:00 CET to ensure fresh data
+is always available.
 
 ---
 
-### 2. Schema: Star Schema (Kimball)
+### 2. Schema Design
 
-**Decision:** Used a Star Schema with `dim_currency_pair` and `fact_fx_rates`.
+**SQLite version (local):** Star Schema with `dim_currency_pair` and `fact_fx_rates`.
 
-**Reasons:**
-- Standard warehouse pattern — easy to join with other DWH tables
-- Queries are simple and readable
-- Scales well as more currencies or metrics are added
+**BigQuery version (production):** Flat/denormalized table — all fields in `fact_fx_rates`.
+
+**Why denormalized in BigQuery?**
+- BigQuery is optimized for flat, wide tables
+- Joins are expensive at scale in BigQuery
+- Denormalization is standard practice for analytical warehouses
 
 **Trade-off:** `dim_currency` table was omitted as currency metadata is
-embedded in `dim_currency_pair`. Can be added if the DWH grows and
-currency-level attributes are needed.
+embedded directly. Can be added if currency-level attributes are needed.
 
 ---
 
@@ -86,24 +88,27 @@ this is negligible.
 **Decision:** Pipeline is idempotent — safe to run multiple times
 without creating duplicate data.
 
-**Implementation:** `UNIQUE (pair_id, date)` constraint on `fact_fx_rates`
-combined with `INSERT OR IGNORE` ensures no duplicates even if the
-pipeline runs twice on the same day.
+**SQLite:** `UNIQUE (pair_id, date)` constraint + `INSERT OR IGNORE`
+
+**BigQuery:** `WRITE_APPEND` with date-based deduplication via query filters.
+Duplicate runs on the same day result in duplicate rows — acceptable for
+daily batch pipelines where reruns are rare.
 
 ---
 
-### 7. SQLite for Fake DWH
+### 7. Two Versions: SQLite and BigQuery
 
-**Decision:** Used SQLite as the warehouse backend.
+**Decision:** Project ships two versions of the pipeline.
 
-**Reasons:**
-- Portable — single file, no server required
-- Easy to validate — can be opened with DB Browser for SQLite
-- Sufficient for a fake DWH demonstration
+| | SQLite (pipeline/) | BigQuery (pipeline_gcp/) |
+|---|---|---|
+| Use case | Local dev / testing | Production |
+| Warehouse | SQLite file | Google BigQuery |
+| Orchestration | Prefect / Docker | Cloud Run + Cloud Scheduler |
+| Dashboard | DB Browser | Looker Studio |
 
-**In production:** Would be replaced with Azure SQL Database or
-Snowflake. Schema and queries are standard SQL and would work
-without modification.
+**Reason:** SQLite version allows anyone to run and validate the pipeline
+locally without a cloud account. BigQuery version is the production deployment.
 
 ---
 
@@ -111,26 +116,33 @@ without modification.
 
 **Decision:** Pipeline supports two modes — `historical` and `daily`.
 
-- `historical`: loads a custom date range (first time setup)
+- `historical`: loads a custom date range (first time setup / backfill)
 - `daily`: loads yesterday's data (scheduled run)
-
-This allows the pipeline to be used both for backfilling and
-for ongoing daily ingestion.
 
 ---
 
-### 9. Docker Containerization
+### 9. Cloud Deployment: GCP
 
-**Decision:** Pipeline is fully containerized with Docker.
+**Decision:** Used Google Cloud Platform for production deployment.
 
-**Reasons:**
-- Consistent execution environment across local, CI, and cloud
-- Easy to deploy to Azure Container Instance or any cloud provider
-- No dependency conflicts — everything is isolated inside the container
-- SQLite file is mounted as a volume so data persists between runs
+**Components:**
+- **Artifact Registry** — stores Docker image
+- **Cloud Run Job** — runs the pipeline in a container
+- **Cloud Scheduler** — triggers daily at 17:00 CET (16:00 UTC)
+- **BigQuery** — data warehouse
+- **Looker Studio** — dashboard, connected directly to BigQuery
 
-**Trade-off:** Adds complexity for local development. Mitigated by
-also supporting a local run option without Docker (see README).
+**Why 17:00 CET?**
+frankfurter.app updates at 16:00 CET. Pipeline runs one hour later
+to ensure fresh data is always available.
 
-**In production:** Docker image would be pushed to Azure Container Registry
-and triggered daily by Azure Data Factory.
+**Trade-off:** GCP adds infrastructure complexity. Mitigated by also
+providing a local Docker version that runs without any cloud account.
+
+---
+
+### 10. Data Validation
+
+Rates were validated against ECB (European Central Bank) reference rates
+and matched exactly, confirming data accuracy. frankfurter.app uses ECB
+as its primary data source, so this was expected.

@@ -1,101 +1,20 @@
 # FX Pipeline
 
-A daily foreign-exchange (FX) rate ingestion pipeline that fetches rates
-for 7 currencies, computes YTD and daily change metrics, and loads them
-into a data warehouse.
+A daily pipeline that fetches foreign-exchange rates for 7 currencies, stores them in BigQuery, and makes them available for analysis via a live dashboard.
+
+**Live Dashboard:** https://datastudio.google.com/s/k5X10e8yiQI
+
+> Rates were validated against ECB (European Central Bank) reference rates and matched exactly, confirming data accuracy.
 
 ---
 
-## Architecture
-frankfurter.app API
-↓
-Python ETL Pipeline
-↓
-┌───────────────────┬────────────────────┐
-│   Local / SQLite  │   GCP / BigQuery   │
-│   (pipeline/)     │   (pipeline_gcp/)  │
-└───────────────────┴────────────────────┘
-↓                    ↓
-Docker + Prefect    Cloud Run + Scheduler
-↓
-Looker Studio Dashboard
+## What it does
 
----
-
-## Project Structure
-fx-pipeline/
-├── pipeline/                # SQLite version (local)
-│   ├── extract.py
-│   ├── transform.py
-│   ├── load.py
-│   └── run_pipeline.py
-├── pipeline_gcp/            # GCP version (production)
-│   ├── components/
-│   │   ├── extract.py
-│   │   ├── transform.py
-│   │   └── load_bq.py       # loads to BigQuery
-│   └── main.py
-├── db/
-│   ├── schema.sql
-│   ├── init_db.py
-│   └── fx_dwh.sqlite
-├── queries/
-│   └── example_queries.sql
-├── orchestration/
-│   ├── prefect_flow.py
-│   └── azure_proposal.md
-├── Dockerfile
-├── docker-compose.yml
-├── requirements.txt
-└── design_notes.md
-
----
-
-## Option A: GCP Version (production)
-
-### Prerequisites
-- Google Cloud account
-- `gcloud` CLI installed and authenticated
-- BigQuery dataset created
-
-### 1. Authenticate
-```bash
-gcloud auth application-default login
-```
-
-### 2. Historical load (first time)
-```bash
-python pipeline_gcp/main.py --mode historical --start 2024-01-01 --end 2024-12-31
-```
-
-### 3. Daily load
-```bash
-python pipeline_gcp/main.py --mode daily
-```
-
-### 4. Dashboard
-Live dashboard available on Looker Studio — connected directly to BigQuery.
-
----
-
-## Option B: Local Version (SQLite + Docker)
-
-### 1. Build Docker image
-```bash
-docker build -t fx-pipeline .
-```
-
-### 2. Historical load
-```bash
-docker run -v ${PWD}/db:/app/db fx-pipeline \
-  python pipeline/run_pipeline.py --mode historical \
-  --start 2024-01-01 --end 2024-12-31
-```
-
-### 3. Daily load
-```bash
-docker run -v ${PWD}/db:/app/db fx-pipeline
-```
+- Fetches daily FX rates from [frankfurter.app](https://frankfurter.app) (ECB data source)
+- Computes **42 cross-pairs** across 7 currencies
+- Calculates **YTD** (Year-to-Date) and **daily change %** for each pair
+- Loads data into BigQuery
+- Runs automatically every day at 17:00 CET via Cloud Scheduler
 
 ---
 
@@ -111,15 +30,125 @@ docker run -v ${PWD}/db:/app/db fx-pipeline
 | DKK | Danish Krone |
 | CZK | Czech Koruna |
 
-7 currencies × 6 counterparts = **42 cross-pairs** per trading day.
-
 ---
 
 ## YTD Definition
 
-YTD is defined as percentage change from the first available trading
-day of the year to the current date:
-YTD % = (rate_today - rate_year_start) / rate_year_start × 100
+Year-to-Date change is calculated from the first available trading day of the year:
+
+```
+YTD % = (rate_today - rate_jan1) / rate_jan1 × 100
+```
+
+---
+
+## Project Structure
+
+```
+fx-pipeline/
+├── pipeline/                  # Local version (SQLite)
+│   ├── extract.py
+│   ├── transform.py
+│   ├── load.py
+│   └── run_pipeline.py
+├── pipeline_gcp/              # Production version (BigQuery)
+│   ├── components/
+│   │   ├── extract.py
+│   │   ├── transform.py
+│   │   └── load_bq.py
+│   └── main.py
+├── db/
+│   ├── schema.sql
+│   ├── init_db.py
+│   └── fx_dwh.sqlite
+├── queries/
+│   └── example_queries.sql
+├── orchestration/
+│   ├── prefect_flow.py
+│   └── azure_proposal.md
+├── Dockerfile
+├── requirements.txt
+└── design_notes.md
+```
+
+---
+
+## How to Run
+
+### Option A — GCP (production)
+
+**Requirements:** Google Cloud account, `gcloud` CLI, BigQuery dataset
+
+```bash
+# authenticate
+gcloud auth application-default login
+
+# historical load (first time)
+python pipeline_gcp/main.py --mode historical --start 2025-01-01 --end 2025-12-31
+
+# daily load
+python pipeline_gcp/main.py --mode daily
+```
+
+### Option B — Local (SQLite + Docker)
+
+```bash
+# build
+docker build -t fx-pipeline .
+
+# historical load
+docker run -v ${PWD}/db:/app/db fx-pipeline \
+  python pipeline/run_pipeline.py --mode historical \
+  --start 2025-01-01 --end 2025-12-31
+
+# daily load
+docker run -v ${PWD}/db:/app/db fx-pipeline
+```
+
+---
+
+## Cloud Deployment (GCP)
+
+```
+Cloud Scheduler (17:00 CET daily)
+        ↓
+Cloud Run Job
+        ↓
+Docker Container (pipeline_gcp/main.py --mode daily)
+        ↓
+BigQuery (fx_dwh.fact_fx_rates)
+        ↓
+Looker Studio Dashboard
+```
+
+**Infrastructure:**
+- Docker image stored in Artifact Registry
+- Pipeline runs as a Cloud Run Job
+- Scheduled daily via Cloud Scheduler
+- Data served to Looker Studio directly from BigQuery
+
+---
+
+## Validate Output
+
+```sql
+-- row count
+SELECT COUNT(*) FROM `fx-pipeline-496417.fx_dwh.fact_fx_rates`;
+
+-- latest rates
+SELECT pair_label, date, rate, daily_change_pct, ytd_pct
+FROM `fx-pipeline-496417.fx_dwh.fact_fx_rates`
+WHERE date = (SELECT MAX(date) FROM `fx-pipeline-496417.fx_dwh.fact_fx_rates`)
+ORDER BY pair_label;
+
+-- no duplicates check
+SELECT pair_label, date, COUNT(*)
+FROM `fx-pipeline-496417.fx_dwh.fact_fx_rates`
+GROUP BY pair_label, date
+HAVING COUNT(*) > 1;
+```
+
+See `queries/example_queries.sql` for more examples.
 
 ---
 

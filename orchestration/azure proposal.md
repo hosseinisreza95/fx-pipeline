@@ -1,8 +1,13 @@
 # Azure Deployment Proposal
 
+> **Note:** This project is currently deployed on GCP (see README for live deployment details).
+> This document describes how the same pipeline could be deployed on Azure.
+
+---
+
 ## Overview
 
-In a production Azure environment, this pipeline runs daily using
+In a production Azure environment, this pipeline would run daily using
 **Azure Data Factory (ADF)** for orchestration, **Azure Container Instance (ACI)**
 for execution, and **Azure SQL Database** as the warehouse backend.
 
@@ -13,7 +18,7 @@ for execution, and **Azure SQL Database** as the warehouse backend.
 ```
 frankfurter.app API
         ↓
-Azure Data Factory (daily trigger, 6:00 AM UTC)
+Azure Data Factory (daily trigger, 17:00 CET)
         ↓
 Azure Container Instance (runs Docker image)
         ↓
@@ -42,16 +47,11 @@ Azure Container Instance (runs the image daily)
 
 ### 1. Azure Container Registry (ACR)
 
-Stores the Docker image:
-
 ```bash
-# push image to ACR
 az acr build --registry fxpipelineacr --image fx-pipeline:latest .
 ```
 
 ### 2. Azure Data Factory Pipeline
-
-Triggers the container daily:
 
 ```json
 {
@@ -80,7 +80,7 @@ Triggers the container daily:
           "recurrence": {
             "frequency": "Day",
             "interval": 1,
-            "startTime": "2024-01-01T06:00:00Z",
+            "startTime": "2024-01-01T16:00:00Z",
             "timeZone": "UTC"
           }
         }
@@ -146,29 +146,20 @@ resource sqlDatabase 'Microsoft.Sql/servers/databases@2021-11-01' = {
 | Orchestrator | Azure Data Factory | Native Azure, no extra infra |
 | Runner | Azure Container Instance | Runs Docker image, serverless |
 | Image registry | Azure Container Registry | Native integration with ACI |
-| Schedule | Daily 6:00 AM UTC | Markets closed, fresh data available |
+| Schedule | Daily 16:00 UTC (17:00 CET) | 1 hour after ECB publishes rates |
 | Database | Azure SQL | Production-grade, easy to join with other DWH tables |
 | Retries | 3 retries, 30s delay | API occasionally unavailable |
 | Monitoring | ADF built-in alerts | Email on failure |
 
 ---
 
-## Local Alternative (Prefect + Docker)
+## GCP vs Azure Comparison
 
-For local or non-Azure environments:
-
-```bash
-# build image
-docker build -t fx-pipeline .
-
-# run daily
-docker run -v ${PWD}/db:/app/db fx-pipeline
-
-# schedule with Prefect
-prefect deployment build orchestration/prefect_flow.py:fx_pipeline_flow \
-  --name fx-daily \
-  --cron "0 6 * * *"
-
-prefect deployment apply fx_pipeline_flow-deployment.yaml
-prefect agent start -q default
-```
+| | GCP (deployed) | Azure (proposal) |
+|---|---|---|
+| Orchestration | Cloud Scheduler | Azure Data Factory |
+| Runner | Cloud Run Job | Azure Container Instance |
+| Image registry | Artifact Registry | Azure Container Registry |
+| Database | BigQuery | Azure SQL Database |
+| Dashboard | Looker Studio | Power BI |
+| IaC | gcloud CLI | Bicep |

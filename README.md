@@ -67,6 +67,8 @@ fx-pipeline/
 │   ├── prefect_flow.py
 │   └── azure_proposal.md
 ├── Dockerfile
+├── Dockerfile.gcp
+├── cloudbuild.yaml
 ├── requirements.txt
 └── design_notes.md
 ```
@@ -84,7 +86,7 @@ fx-pipeline/
 gcloud auth application-default login
 
 # historical load (first time)
-python pipeline_gcp/main.py --mode historical --start 2025-01-01 --end 2025-12-31
+python pipeline_gcp/main.py --mode historical --start 2025-01-01 --end 2026-05-17
 
 # daily load
 python pipeline_gcp/main.py --mode daily

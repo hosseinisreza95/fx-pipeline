@@ -19,6 +19,10 @@ def run(mode: str, start: str = "", end: str = ""):
     if mode == "daily":
         end_date = date.today().strftime("%Y-%m-%d")
         start_date = (date.today() - timedelta(days=5)).strftime("%Y-%m-%d")
+        # for YTD calculation, fetch from start of year
+        ytd_start = f"{date.today().year}-01-01"
+        raw = extract_all(ytd_start, end_date)
+        transformed = transform(raw, start_date, end_date)
     else:
         start_date = start
         end_date = end

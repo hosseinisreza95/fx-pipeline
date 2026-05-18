@@ -17,8 +17,8 @@ from components.load_bq import load_to_bigquery
 def run(mode: str, start: str = "", end: str = ""):
 
     if mode == "daily":
-        start_date = (date.today() - timedelta(days=1)).strftime("%Y-%m-%d")
         end_date = date.today().strftime("%Y-%m-%d")
+        start_date = (date.today() - timedelta(days=5)).strftime("%Y-%m-%d")
     else:
         start_date = start
         end_date = end

@@ -1,0 +1,18 @@
+# =============================================
+# FX Pipeline - Dockerfile (GCP/BigQuery version)
+# =============================================
+
+FROM python:3.11-slim
+
+WORKDIR /app
+
+# install dependencies
+COPY requirements.txt .
+RUN pip install --no-cache-dir -r requirements.txt
+RUN pip install --no-cache-dir google-cloud-bigquery pyarrow
+
+# copy GCP pipeline only
+COPY pipeline_gcp/ ./pipeline_gcp/
+
+# default command — daily mode using BigQuery
+CMD ["python", "pipeline_gcp/main.py", "--mode", "daily"]

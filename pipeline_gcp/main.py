@@ -16,31 +16,39 @@ from components.load_bq import load_to_bigquery
 
 def run(mode: str, start: str = "", end: str = ""):
 
+    print("=" * 40)
+
     if mode == "daily":
         end_date = date.today().strftime("%Y-%m-%d")
         start_date = (date.today() - timedelta(days=5)).strftime("%Y-%m-%d")
-        # for YTD calculation, fetch from start of year
         ytd_start = f"{date.today().year}-01-01"
-        raw = extract_all(ytd_start, end_date)
-        transformed = transform(raw, start_date, end_date)
+
+        print(f"FX Pipeline GCP (mode: {mode})")
+        print(f"Date range: {start_date} to {end_date}")
+        print("=" * 40)
+
+        print("\n[1/3] Extracting...")
+        raw = extract_all(ytd_start, end_date)  
+
+        print("\n[2/3] Transforming...")
+        transformed = transform(raw, start_date, end_date)  
+
     else:
         start_date = start
         end_date = end
 
-    print("=" * 40)
-    print(f"FX Pipeline GCP (mode: {mode})")
-    print(f"Date range: {start_date} to {end_date}")
-    print("=" * 40)
+        print(f"FX Pipeline GCP (mode: {mode})")
+        print(f"Date range: {start_date} to {end_date}")
+        print("=" * 40)
 
-    print("\n[1/3] Extracting...")
-    raw = extract_all(start_date, end_date)
+        print("\n[1/3] Extracting...")
+        raw = extract_all(start_date, end_date)
 
-    print("\n[2/3] Transforming...")
-    transformed = transform(raw, start_date, end_date)
+        print("\n[2/3] Transforming...")
+        transformed = transform(raw, start_date, end_date)
 
     print("\n[3/3] Loading to BigQuery...")
     load_to_bigquery(transformed)
-
     print("\nPipeline completed successfully!")
 
 
